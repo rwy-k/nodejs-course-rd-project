@@ -1,121 +1,174 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Опис проєкту та технологій
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## Призначення
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Сервіс керування логістичними відправленнями (shipments).
+API реалізує:
 
-## Description
+- реєстрацію та логін користувачів;
+- рольову модель доступу (`CLIENT`, `ADMIN`, `DRIVER`);
+- CRUD для відправлень;
+- фонову обробку статусів через чергу;
+- технічні ендпойнти health/metrics.
 
-Backend на **NestJS** (логістичні відправлення, JWT, TypeORM, BullMQ, Prometheus тощо). Детальний опис проєкту й технологій — у **[docs/PROJECT.md](docs/PROJECT.md)**. Фінальний висновок по всьому зробленому — у **[docs/FINAL_CONCLUSION.md](docs/FINAL_CONCLUSION.md)**.
+Бекенд побудований на NestJS (TypeScript), основна БД - PostgreSQL, черги - Redis + BullMQ.
 
-Шаблон NestJS та ресурси нижче залишено для довідки.
+---
 
-## Локальний запуск через Docker (повний контур)
+## Архітектура (модулі)
 
-Усі залежності основного сценарію (API, PostgreSQL, Redis для BullMQ) піднімаються однією командою з кореня репозиторію:
+| Модуль | Відповідальність |
+|---|---|
+| `auth` | `POST /auth/register`, `POST /auth/login`, JWT, local/JWT стратегії Passport. |
+| `users` | Сутність користувача, ролі, доступ до користувачів для auth. |
+| `shipments` | CRUD відправлень, бізнес-правила тегів, постановка джоб у чергу `shipment-processing`. |
+| `common` | RBAC: `@Roles()`, `RolesGuard`. |
+| `config` | Завантаження `.env(.local)` і валідація env через Joi. |
+| `health` | `GET /health` через Terminus: перевірка БД та Redis. |
+| `metrics` | `GET /metrics` у форматі Prometheus (`prom-client`). |
+| `logging` | Структуроване логування через `nestjs-pino` / `pino-http`. |
+
+Ключові глобальні налаштування:
+
+- `ValidationPipe` (`transform`, `whitelist`);
+- `TypeOrmModule.forRootAsync` (PostgreSQL у звичайному режимі, in-memory SQLite у `NODE_ENV=test`);
+- `BullModule.forRootAsync` (у тестах за замовчуванням вимкнено, вмикається через `E2E_ENABLE_BULL=true`).
+
+---
+
+## Технологічний стек
+
+### Платформа
+
+- Node.js (у Docker-образі - Node 22 Alpine);
+- TypeScript;
+- NestJS 11 + Express adapter.
+
+### Дані та інфраструктура
+
+- TypeORM 0.3;
+- PostgreSQL (`pg`);
+- Redis (`ioredis`) для BullMQ та health-перевірок;
+- BullMQ + `@nestjs/bullmq` для фонових задач.
+
+### Безпека та валідація
+
+- `@nestjs/jwt`, `@nestjs/passport`, `passport-local`, `passport-jwt`;
+- `bcrypt` для хешування паролів;
+- `class-validator` + `class-transformer` для DTO;
+- `Joi` для валідації змінних оточення.
+
+### Спостережуваність
+
+- `@nestjs/terminus` (`/health`);
+- `prom-client` (`/metrics`);
+- `nestjs-pino`, `pino`, `pino-http`, `pino-pretty`.
+
+### Якість і тести
+
+- ESLint 9 + TypeScript ESLint;
+- Prettier;
+- Jest + Supertest;
+- test suites: unit, e2e, e2e integration.
+
+### Контейнеризація та CI/CD
+
+- Docker + Docker Compose (`api`, `postgres`, `redis`);
+- GitHub Actions workflows:
+  - `main.yml` - lint, тести, збірка Docker image (блокуючий CI для `main`);
+  - `deploy.yml` - ручний деплой-хук (Render);
+  - `deploy-aws-ecr.yml` - автоматичний продакшен-ланцюжок після **успішного `Main` workflow** на `main`:
+    1) build/push образу в Amazon ECR (`latest` + commit SHA);
+    2) SSH-деплой на EC2: login у ECR, `docker compose pull api`, `docker compose up -d --no-build`;
+    3) smoke-check `GET /health` через `SMOKE_EC2_BASE_URL`;
+    4) fail-fast: workflow завершується з помилкою, якщо не налаштовані секрети, SSH-деплой неуспішний або smoke-check повертає помилку.
+  - `smoke-ec2.yml` - окрема smoke-перевірка доступності EC2 HTTP.
+
+---
+
+## Доменна модель
+
+### User
+
+- `id` (UUID);
+- `email` (унікальний);
+- `passwordHash`;
+- `role`: `CLIENT` | `ADMIN` | `DRIVER`.
+
+### Shipment
+
+- `id` (UUID), `trackingNumber` (унікальний), `clientId` (UUID);
+- `payload`: `weightKg`, `lengthCm`, `widthCm`, `heightCm`;
+- `pickupAddress` / `deliveryAddress` (JSON-об'єкти адреси);
+- `status`: `CREATED`, `PROCESSING`, `READY_FOR_PICKUP`, `DELIVERED`;
+- `tags`: масив рядків (`HEAVY_CARGO` автоматично додається, якщо вага > 50 кг).
+
+---
+
+## Основні HTTP-ендпойнти
+
+| Метод | Шлях | Призначення |
+|---|---|---|
+| `POST` | `/auth/register` | Реєстрація користувача, повернення JWT. |
+| `POST` | `/auth/login` | Логін, повернення JWT. |
+| `POST` | `/shipments` | Створення відправлення (JWT + роль `CLIENT`). |
+| `GET` | `/shipments` | Отримання списку відправлень. |
+| `GET` | `/shipments/:id` | Отримання одного відправлення. |
+| `PATCH` | `/shipments/:id` | Оновлення відправлення. |
+| `DELETE` | `/shipments/:id` | Видалення відправлення. |
+| `GET` | `/health` | Перевірка готовності сервісу. |
+| `GET` | `/metrics` | Метрики у форматі Prometheus. |
+
+Доступ контролюється `JwtAuthGuard` + `RolesGuard`; для `POST /shipments` є додаткове правило: `clientId` у body має збігатися з `sub` з JWT.
+
+---
+
+## Змінні оточення
+
+Приклад - у `.env.example`.
+
+Основні групи:
+
+- `NODE_ENV`, `PORT`;
+- `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`;
+- `REDIS_HOST`, `REDIS_PORT`;
+- `JWT_SECRET`, `JWT_EXPIRES_IN`.
+
+Для інтеграційних e2e із чергою:
+
+- `E2E_ENABLE_BULL`;
+- `E2E_SHIPMENT_PROCESSING_DELAY_MS`.
+
+---
+
+## Базові команди
 
 ```bash
-cp .env.example .env
+npm install
+npm run start:dev
+npm run build
+npm run start:prod
+npm run lint
+npm run test
+npm run test:e2e
+npm run test:e2e:integration
 docker compose up --build
 ```
 
-Після старту:
+---
 
-- API: `http://localhost:3000` (порт змінюється змінною `API_PORT` у shell або `.env`, якщо додасте її для compose).
-- Перевірка готовності: `GET http://localhost:3000/health`
-- Метрики: `GET http://localhost:3000/metrics`
+## Структура `src` (скорочено)
 
-Секрети та паролі не комітити: для продакшену задайте власні значення в `.env` або в оточенні перед `docker compose` (див. **`.env.example`**). У `docker-compose.yml` для локального демо є лише дефолти через підстановку змінних.
-
-**Деплой на EC2 (Amazon Linux 2023):** покрокова інструкція — **[docs/EC2_AMAZON_LINUX2023.md](docs/EC2_AMAZON_LINUX2023.md)**.
-
-Розробка без Docker (лише Node): **`npm install`**, **`npm run start:dev`** — потрібні локально запущені PostgreSQL і Redis згідно з `.env`.
-
-## Project setup
-
-```bash
-$ npm install
+```text
+src/
+  auth/
+  users/
+  shipments/
+  common/
+  config/
+  health/
+  metrics/
+  logging/
+  main.ts
+  app.module.ts
 ```
-
-## Compile and run the project
-
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

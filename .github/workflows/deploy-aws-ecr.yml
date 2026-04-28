@@ -1,8 +1,9 @@
 name: Deploy AWS (ECR)
 
-# Після мержу PR у main GitHub робить push у main — цей workflow збере й завантажить образ у ECR.
 on:
-  push:
+  workflow_run:
+    workflows: ["Main"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -16,9 +17,16 @@ concurrency:
 
 jobs:
   push:
+    name: Build and push image to ECR
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      ecr_registry: ${{ steps.ecr.outputs.registry }}
+      image_tag: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -39,3 +47,90 @@ jobs:
           docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
           docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker push "$REGISTRY/$ECR_REPOSITORY:latest"
+
+  deploy-ec2:
+    name: Deploy on EC2
+    runs-on: ubuntu-latest
+    needs: push
+    steps:
+      - name: Check deploy secrets
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_SSH_KEY" ]; then
+            echo "Missing required secrets: EC2_HOST and/or EC2_SSH_KEY."
+            exit 1
+          fi
+
+      - name: Deploy via SSH (git pull + docker compose up)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ vars.EC2_DEPLOY_PATH }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REGISTRY: ${{ needs.push.outputs.ecr_registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ needs.push.outputs.image_tag }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          envs: DEPLOY_PATH,AWS_REGION,ECR_REGISTRY,ECR_REPOSITORY,IMAGE_TAG
+          script: |
+            set -euo pipefail
+            APP_DIR="${DEPLOY_PATH:-$HOME/nodejs-course-rd-project}"
+            IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "Repository is not found at $APP_DIR"
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+
+            if command -v aws >/dev/null 2>&1; then
+              aws ecr get-login-password --region "$AWS_REGION" \
+                | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            else
+              echo "AWS CLI is required on EC2 to login into ECR."
+              exit 1
+            fi
+
+            export API_IMAGE="$IMAGE_URI"
+            if docker compose version >/dev/null 2>&1; then
+              docker compose pull api
+              docker compose up -d --no-build
+            elif command -v docker-compose >/dev/null 2>&1; then
+              docker-compose pull api
+              docker-compose up -d --no-build
+            else
+              echo "Neither docker compose nor docker-compose is available on EC2."
+              exit 1
+            fi
+
+  smoke:
+    name: Smoke check (EC2 /health)
+    runs-on: ubuntu-latest
+    needs: deploy-ec2
+    steps:
+      - name: Check smoke URL secret
+        env:
+          BASE_URL: ${{ secrets.SMOKE_EC2_BASE_URL }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "Missing required secret: SMOKE_EC2_BASE_URL"
+            exit 1
+          fi
+
+      - name: Health check
+        env:
+          BASE_URL: ${{ secrets.SMOKE_EC2_BASE_URL }}
+        run: |
+          curl -fsS --connect-timeout 15 --max-time 30 \
+            -o /tmp/health.json -w "HTTP %{http_code}\n" \
+            "${BASE_URL}/health"
+          head -c 2000 /tmp/health.json
+          echo

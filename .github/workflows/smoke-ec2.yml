@@ -1,7 +1,3 @@
-# Перевірка з GitHub Actions, що EC2 відповідає на HTTP (без SSH).
-# Налаштування: Settings → Secrets and variables → Actions → Repository secrets:
-#   SMOKE_EC2_BASE_URL — наприклад https://api.example.com або http://1.2.3.4:3000 (без завершального /)
-
 name: Smoke (EC2 HTTP)
 
 on:
