@@ -1,0 +1,11 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "setupFiles": ["<rootDir>/e2e-env.ts"],
+  "testEnvironment": "node",
+  "testPathIgnorePatterns": ["<rootDir>/shipments-flow.e2e-spec.ts"],
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
+}
