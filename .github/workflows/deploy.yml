@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to send the deploy signal
+        required: true
+        type: choice
+        options:
+          - render
+        default: render
+
+jobs:
+  render:
+    name: Trigger Render deploy hook
+    if: inputs.target == 'render'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST deploy hook
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "Add secret RENDER_DEPLOY_HOOK_URL (Render → Web Service → Deploy Hook)."
+            exit 1
+          fi
+          curl -fsS -X POST "$HOOK_URL"
+          echo "Render deploy triggered."

@@ -1,0 +1,48 @@
+databases:
+  - name: nodejs-course-postgres
+    databaseName: app
+    user: nest
+    plan: free
+
+services:
+  - type: web
+    name: nodejs-course-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_HOST
+        fromDatabase:
+          name: nodejs-course-postgres
+          property: host
+      - key: DATABASE_PORT
+        fromDatabase:
+          name: nodejs-course-postgres
+          property: port
+      - key: DATABASE_USER
+        fromDatabase:
+          name: nodejs-course-postgres
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: nodejs-course-postgres
+          property: password
+      - key: DATABASE_NAME
+        fromDatabase:
+          name: nodejs-course-postgres
+          property: database
+      - key: DATABASE_SYNCHRONIZE
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        sync: false

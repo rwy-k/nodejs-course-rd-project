@@ -1,0 +1,29 @@
+# Перевірка з GitHub Actions, що EC2 відповідає на HTTP (без SSH).
+# Налаштування: Settings → Secrets and variables → Actions → Repository secrets:
+#   SMOKE_EC2_BASE_URL — наприклад https://api.example.com або http://1.2.3.4:3000 (без завершального /)
+
+name: Smoke (EC2 HTTP)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check
+        env:
+          BASE_URL: ${{ secrets.SMOKE_EC2_BASE_URL }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "Secret SMOKE_EC2_BASE_URL не заданий — smoke пропущено."
+            echo "Додайте secret (базовий URL без / в кінці), щоб перевіряти EC2 з CI."
+            exit 0
+          fi
+          curl -fsS --connect-timeout 15 --max-time 30 \
+            -o /tmp/health.json -w "HTTP %{http_code}\n" \
+            "${BASE_URL}/health"
+          head -c 2000 /tmp/health.json
+          echo
